@@ -1,0 +1,41 @@
+name: Canh điểm thi TIMO 2026-2027
+
+on:
+  schedule:
+    # Chạy tự động mỗi 15 phút một lần
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Cho phép bạn bấm nút chạy thử bằng tay bất kỳ lúc nào
+
+permissions:
+  contents: write # Cấp quyền để bot tự lưu file notified.txt sau khi báo điểm
+
+jobs:
+  check-score:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Tải mã nguồn về máy ảo
+        uses: actions/checkout@v4
+
+      - name: 2. Cài đặt Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 3. Cài đặt thư viện
+        run: pip install requests beautifulsoup4
+
+      - name: 4. Chạy script kiểm tra điểm
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python check_timo_action.py
+
+      - name: 5. Lưu trạng thái nếu đã có điểm (Chống gửi lặp lại)
+        run: |
+          if [ -f "notified.txt" ]; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add notified.txt
+            git diff --staged --quiet || (git commit -m "🎉 Đã có điểm TIMO - Dừng gửi thông báo lặp" && git push)
+          fi
