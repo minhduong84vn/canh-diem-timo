@@ -4,7 +4,6 @@ import sys
 import requests
 from bs4 import BeautifulSoup
 
-# Lấy cấu hình từ biến môi trường (GitHub Secrets)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
@@ -32,8 +31,8 @@ PAYLOAD = {
 
 def send_telegram(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ Chưa cấu hình TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID!")
-        return
+        print("❌ Lỗi: Chưa cấu hình TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID trong Secrets!")
+        sys.exit(1)
     tg_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     data = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -41,15 +40,15 @@ def send_telegram(message):
         "parse_mode": "HTML"
     }
     resp = requests.post(tg_url, json=data, timeout=10)
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        print(f"❌ Lỗi gửi Telegram API: {resp.text}")
+        sys.exit(1)
 
 def main():
-    # 1. Kiểm tra xem trước đó đã báo điểm chưa
     if os.path.exists(STATE_FILE):
         print("✅ Đã gửi thông báo điểm trước đó rồi (tồn tại file notified.txt). Bỏ qua!")
         sys.exit(0)
 
-    # 2. Gọi API Fermat
     try:
         response = requests.post(URL, headers=HEADERS, data=PAYLOAD, timeout=20)
         response.raise_for_status()
@@ -58,7 +57,6 @@ def main():
         print(f"❌ Lỗi kết nối tới Fermat: {e}")
         sys.exit(1)
 
-    # 3. Đảm bảo phản hồi hợp lệ (tránh báo nhầm khi web sập/bảo trì)
     if "T512058" not in html_content and "ĐỒNG MINH KHANG" not in html_content.upper():
         print("⚠️ Phản hồi không chứa thông tin thí sinh T512058. Có thể web đang nghẽn hoặc bảo trì.")
         sys.exit(0)
@@ -66,7 +64,6 @@ def main():
     soup = BeautifulSoup(html_content, "html.parser")
     clean_text = soup.get_text(separator="\n", strip=True)
 
-    # Bóc tách dòng Điểm và Giải
     diem_match = re.search(r"Điểm:\s*(.+)", clean_text, re.IGNORECASE)
     giai_match = re.search(r"Giải:\s*(.+)", clean_text, re.IGNORECASE)
 
@@ -75,7 +72,6 @@ def main():
 
     print(f"🔍 Trạng thái hiện tại -> Điểm: {diem} | Giải: {giai}")
 
-    # 4. Kiểm tra nếu Điểm hoặc Giải đã thay đổi khác "CHƯA CÓ KẾT QUẢ"
     if "CHƯA CÓ KẾT QUẢ" not in diem.upper() or "CHƯA CÓ KẾT QUẢ" not in giai.upper():
         lines = [line.strip() for line in clean_text.split("\n") if line.strip()]
         formatted_info = "\n".join(lines)
@@ -94,11 +90,20 @@ def main():
         send_telegram(msg)
         print("🎉 Đã gửi thông báo điểm về Telegram!")
 
-        # Tạo file đánh dấu đã báo điểm để các lần chạy sau tự dừng
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             f.write(f"Đã báo kết quả: Điểm={diem}, Giải={giai}\n")
     else:
         print("⏳ Vẫn chưa có kết quả mới.")
+        # Chỉ gửi tin nhắn test khi bạn chủ động bấm nút "Run workflow" bằng tay
+        if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+            send_telegram(
+                f"✅ <b>[TEST KẾT NỐI THÀNH CÔNG]</b>\n"
+                f"Bot canh điểm TIMO trên GitHub Actions đang hoạt động tốt!\n"
+                f"• Thí sinh: <b>Đồng Minh Khang (T512058)</b>\n"
+                f"• Điểm hiện tại: <code>{diem}</code>\n"
+                f"• Giải hiện tại: <code>{giai}</code>"
+            )
+            print("📨 Đã gửi tin nhắn TEST về Telegram (do chạy bằng tay)!")
 
 if __name__ == "__main__":
     main()
